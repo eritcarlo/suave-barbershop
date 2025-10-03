@@ -60,13 +60,10 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Smart email function: Use Resend for allowed addresses, Gmail for others
+// Universal Resend email function - try Resend first, fallback to Gmail
 async function sendEmail({ to, subject, html }) {
-  const allowedResendEmail = 'immrclrnz@gmail.com';
-  
-  // Use Resend for the main email address (no restrictions)
-  if (process.env.RESEND_API_KEY && to === allowedResendEmail) {
-    console.log(`📧 Sending email to ${to} via Resend (unrestricted address)`);
+  if (process.env.RESEND_API_KEY) {
+    console.log(`📧 Attempting to send email to ${to} via Resend`);
     try {
       const result = await resend.emails.send({
         from: 'Suave Barbershop <onboarding@resend.dev>',
@@ -75,20 +72,22 @@ async function sendEmail({ to, subject, html }) {
         html: html,
       });
       
-      if (result.error) {
-        console.error('❌ Resend error for main address:', result.error);
-        throw new Error('Resend failed');
+      // Check if Resend succeeded (no error)
+      if (!result.error) {
+        console.log('✅ Email sent via Resend:', result.data?.id);
+        return result;
       }
       
-      console.log('✅ Email sent via Resend:', result.data?.id);
-      return result;
+      // Resend failed due to restrictions, log and fallback
+      console.warn(`⚠️ Resend restriction for ${to}:`, result.error.message);
+      console.log('🔄 Falling back to Gmail SMTP...');
+      
     } catch (error) {
-      console.error('❌ Resend failed, falling back to Gmail:', error.message);
-      // Fall through to Gmail
+      console.error('❌ Resend error, falling back to Gmail:', error.message);
     }
   }
   
-  // Use Gmail SMTP for all other addresses or as fallback
+  // Fallback to Gmail SMTP for all addresses
   console.log(`📧 Sending email to ${to} via Gmail SMTP`);
   try {
     const result = await transporter.sendMail({
@@ -100,7 +99,7 @@ async function sendEmail({ to, subject, html }) {
     console.log('✅ Email sent via Gmail SMTP:', result.messageId);
     return result;
   } catch (error) {
-    console.error('❌ Gmail SMTP error:', error);
+    console.error('❌ Gmail SMTP also failed:', error);
     throw error;
   }
 }
