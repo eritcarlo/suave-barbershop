@@ -42,12 +42,17 @@ const upload = multer({
   },
 });
 
-// Email configuration
+// Email configuration - Direct SMTP instead of Gmail service
 const transporter = nodemailer.createTransport({
-  service: "gmail",
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // true for 465, false for other ports
   auth: {
     user: process.env.EMAIL_USER || "immrclrnz@gmail.com",
     pass: process.env.EMAIL_PASS || "lagl vivy osbc wyxa",
+  },
+  tls: {
+    rejectUnauthorized: false
   },
   pool: true,
   maxConnections: 1,
