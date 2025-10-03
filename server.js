@@ -2704,8 +2704,8 @@ const resetCodes = new Map(); // { email: { code, timestamp, verified } }
 
 // Temporary: Use longer-lived memory storage for reset tokens (30 minutes)
 const resetTokens = new Map(); // { token: { email, timestamp } }
+console.log("🔥🔥🔥 GMAIL-ONLY VERSION ACTIVE - NO MORE RESEND RESTRICTIONS! 🔥🔥🔥");
 console.log("⚠️ Using temporary memory-based reset tokens with 30min expiry");
-console.log("🆕 NEW SIMPLIFIED PASSWORD RESET VERSION LOADED!");
 
 // Generate 6-digit verification code
 function generateVerificationCode() {
@@ -3344,5 +3344,6 @@ app.use((req, res) => res.status(404).send("Page not found"));
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
   console.log("🔧 PASSWORD RESET FIX VERSION 2024-10-04 DEPLOYED ✅");
+  console.log("📧 ALL EMAILS NOW USE GMAIL SMTP - NO DOMAIN RESTRICTIONS!");
 });
 
