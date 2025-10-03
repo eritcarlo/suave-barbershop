@@ -2744,6 +2744,7 @@ db.serialize(() => {
 function generateVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
+// Force redeploy to fix password reset issue
 
 // Generate reset token
 function generateResetToken() {
