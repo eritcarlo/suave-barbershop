@@ -4,6 +4,7 @@ const path = require("path");
 const bcrypt = require("bcrypt");
 const session = require("express-session");
 const nodemailer = require("nodemailer");
+const { Resend } = require('resend');
 const QRCode = require("qrcode");
 const multer = require("multer");
 const fs = require("fs");
@@ -42,11 +43,14 @@ const upload = multer({
   },
 });
 
-// Email configuration - Direct SMTP instead of Gmail service
-const transporter = nodemailer.createTransport({
+// Email configuration - Using Resend for better deliverability
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// Fallback to Gmail SMTP if Resend is not configured
+const transporter = process.env.RESEND_API_KEY ? null : nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
-  secure: false, // true for 465, false for other ports
+  secure: false,
   auth: {
     user: process.env.EMAIL_USER || "immrclrnz@gmail.com",
     pass: process.env.EMAIL_PASS || "lagl vivy osbc wyxa",
@@ -54,24 +58,58 @@ const transporter = nodemailer.createTransport({
   tls: {
     rejectUnauthorized: false
   },
-  pool: true,
-  maxConnections: 1,
-  maxMessages: 3,
-  rateDelta: 1000,
-  rateLimit: 5,
-  connectionTimeout: 60000,
-  greetingTimeout: 30000,
-  socketTimeout: 60000,
 });
 
-// Test email connection on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('❌ Email configuration error:', error);
+// Email sending function that uses Resend or falls back to Gmail
+async function sendEmail({ to, subject, html }) {
+  if (process.env.RESEND_API_KEY) {
+    // Use Resend
+    try {
+      const result = await resend.emails.send({
+        from: 'Suave Barbershop <noreply@suavebarbershop.com>', // You'll need to verify your domain
+        to: [to],
+        subject: subject,
+        html: html,
+      });
+      console.log('✅ Email sent via Resend:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Resend error:', error);
+      throw error;
+    }
   } else {
-    console.log('✅ Email server is ready to send messages');
+    // Fallback to Gmail SMTP
+    try {
+      const result = await transporter.sendMail({
+        from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
+        to: to,
+        subject: subject,
+        html: html,
+      });
+      console.log('✅ Email sent via Gmail SMTP:', result.messageId);
+      return result;
+    } catch (error) {
+      console.error('❌ Gmail SMTP error:', error);
+      throw error;
+    }
   }
-});
+}
+
+// Test email configuration on startup
+if (process.env.RESEND_API_KEY) {
+  console.log('✅ Using Resend for email delivery');
+} else {
+  console.log('⚠️ Using Gmail SMTP fallback - Consider switching to Resend for better deliverability');
+  if (transporter) {
+    transporter.verify((error, success) => {
+      if (error) {
+        console.error('❌ Gmail SMTP configuration error:', error);
+      } else {
+        console.log('✅ Gmail SMTP server is ready to send messages');
+      }
+    });
+  }
+}
 
 // ---------------- DATABASE ----------------
 const dbPath = path.join(__dirname, "barbershop.db");
@@ -2728,8 +2766,7 @@ app.post("/api/forgot-password", async (req, res) => {
         try {
           console.log(`Attempting to send verification email to ${email} (attempt ${i + 1}/${retries})`);
           
-          await transporter.sendMail({
-            from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
+          await sendEmail({
             to: email,
             subject: "Password Reset Verification Code - Suave Barbershop",
             html: `
