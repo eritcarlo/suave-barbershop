@@ -2715,9 +2715,30 @@ app.post("/api/select-service", requireLogin, (req, res) => {
 });
 
 // Add the missing forgot password API endpoints here (before 404 handlers)
-// Store for temporary reset codes (in production, use Redis or database)
+// Store for temporary reset codes (short-lived, can stay in memory)
 const resetCodes = new Map(); // { email: { code, timestamp, verified } }
-const resetTokens = new Map(); // { token: { email, timestamp } }
+
+// Create reset_tokens table for persistent storage
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS reset_tokens (
+      token TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
+  
+  // Clean up expired tokens on startup
+  const now = Date.now();
+  db.run(`DELETE FROM reset_tokens WHERE expires_at < ?`, [now], (err) => {
+    if (err) {
+      console.error("Error cleaning up expired reset tokens:", err);
+    } else {
+      console.log("✅ Expired reset tokens cleaned up");
+    }
+  });
+});
 
 // Generate 6-digit verification code
 function generateVerificationCode() {
@@ -2861,25 +2882,25 @@ app.post("/api/verify-reset-code", (req, res) => {
 
   // Mark as verified and generate reset token
   const resetToken = generateResetToken();
-  const tokenTimestamp = Date.now();
+  const currentTime = Date.now();
+  const expiresAt = currentTime + (15 * 60 * 1000); // 15 minutes from now
   
-  // Store reset token (expires in 15 minutes)
-  resetTokens.set(resetToken, {
-    email: email,
-    timestamp: tokenTimestamp
-  });
+  // Store reset token in database (persistent across server restarts)
+  db.run(`INSERT OR REPLACE INTO reset_tokens (token, email, created_at, expires_at) VALUES (?, ?, ?, ?)`, 
+    [resetToken, email, currentTime, expiresAt], 
+    function(err) {
+      if (err) {
+        console.error("Error storing reset token:", err);
+        return res.status(500).json({ success: false, error: "Database error" });
+      }
+      
+      console.log(`✅ Reset token stored for ${email}, expires in 15 minutes`);
+    }
+  );
 
   // Mark code as verified
   stored.verified = true;
   resetCodes.set(email, stored);
-
-  // Clean up token after 15 minutes
-  setTimeout(() => {
-    const storedToken = resetTokens.get(resetToken);
-    if (storedToken && storedToken.timestamp === tokenTimestamp) {
-      resetTokens.delete(resetToken);
-    }
-  }, 15 * 60 * 1000); // 15 minutes
 
   res.json({ 
     success: true, 
@@ -2900,33 +2921,37 @@ app.post("/api/reset-password", async (req, res) => {
     return res.status(400).json({ success: false, error: "Password must be at least 6 characters long" });
   }
 
-  const storedToken = resetTokens.get(token);
-  
-  if (!storedToken) {
-    return res.status(400).json({ success: false, error: "Invalid or expired reset token" });
-  }
+  // Get token from database
+  db.get(`SELECT * FROM reset_tokens WHERE token = ?`, [token], (err, storedToken) => {
+    if (err) {
+      console.error("Database error:", err);
+      return res.status(500).json({ success: false, error: "Database error" });
+    }
+    
+    if (!storedToken) {
+      return res.status(400).json({ success: false, error: "Invalid or expired reset token" });
+    }
 
-  if (storedToken.email !== email) {
-    return res.status(400).json({ success: false, error: "Token does not match email" });
-  }
+    if (storedToken.email !== email) {
+      return res.status(400).json({ success: false, error: "Token does not match email" });
+    }
 
-  // Check if token expired (15 minutes)
-  const now = Date.now();
-  const tokenAge = now - storedToken.timestamp;
-  if (tokenAge > 15 * 60 * 1000) {
-    resetTokens.delete(token);
-    return res.status(400).json({ success: false, error: "Reset token has expired. Please start the process again." });
-  }
+    // Check if token expired
+    const currentTime = Date.now();
+    if (currentTime > storedToken.expires_at) {
+      // Remove expired token
+      db.run(`DELETE FROM reset_tokens WHERE token = ?`, [token]);
+      return res.status(400).json({ success: false, error: "Reset token has expired. Please start the process again." });
+    }
 
-  // Check if verification code was actually verified
-  const stored = resetCodes.get(email);
-  if (!stored || !stored.verified) {
-    return res.status(400).json({ success: false, error: "Verification code was not properly verified" });
-  }
+    // Token is valid, proceed with password reset
+    resetPasswordWithValidToken();
+  });
 
-  try {
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+  async function resetPasswordWithValidToken() {
+    try {
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
     
     // Update password in database
     db.run(
@@ -2944,7 +2969,7 @@ app.post("/api/reset-password", async (req, res) => {
 
         // Clean up stored codes and tokens
         resetCodes.delete(email);
-        resetTokens.delete(token);
+        db.run(`DELETE FROM reset_tokens WHERE token = ?`, [token]);
 
         // Send confirmation email
         sendEmail({
@@ -2968,9 +2993,10 @@ app.post("/api/reset-password", async (req, res) => {
         });
       }
     );
-  } catch (error) {
-    console.error("Password hashing error:", error);
-    res.status(500).json({ success: false, error: "Server error" });
+    } catch (error) {
+      console.error("Password hashing error:", error);
+      res.status(500).json({ success: false, error: "Server error" });
+    }
   }
 });
 
