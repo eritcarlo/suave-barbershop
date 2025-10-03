@@ -66,7 +66,7 @@ async function sendEmail({ to, subject, html }) {
     // Use Resend
     try {
       const result = await resend.emails.send({
-        from: 'Suave Barbershop <noreply@suavebarbershop.com>', // You'll need to verify your domain
+        from: 'Suave Barbershop <onboarding@resend.dev>', // Using Resend's default domain
         to: [to],
         subject: subject,
         html: html,
