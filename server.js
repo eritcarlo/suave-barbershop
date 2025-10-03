@@ -46,8 +46,8 @@ const upload = multer({
 // Email configuration - Using Resend for better deliverability
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Fallback to Gmail SMTP if Resend is not configured
-const transporter = process.env.RESEND_API_KEY ? null : nodemailer.createTransport({
+// Gmail SMTP transporter (always available as fallback)
+const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
   secure: false,
@@ -72,9 +72,34 @@ async function sendEmail({ to, subject, html }) {
         html: html,
       });
       console.log('✅ Email sent via Resend:', result);
+      
+      // Check if Resend failed due to domain restrictions
+      if (result.error && result.error.statusCode === 403) {
+        console.warn('⚠️ Resend domain restriction, falling back to Gmail...');
+        throw new Error('Resend domain restriction - fallback needed');
+      }
+      
       return result;
     } catch (error) {
-      console.error('❌ Resend error:', error);
+      console.error('❌ Resend error, attempting Gmail fallback:', error.message);
+      
+      // Fall back to Gmail SMTP
+      if (transporter) {
+        try {
+          const result = await transporter.sendMail({
+            from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
+            to: to,
+            subject: subject,
+            html: html,
+          });
+          console.log('✅ Email sent via Gmail SMTP fallback:', result.messageId);
+          return result;
+        } catch (gmailError) {
+          console.error('❌ Gmail fallback also failed:', gmailError);
+          throw gmailError;
+        }
+      }
+      
       throw error;
     }
   } else {
@@ -2874,6 +2899,15 @@ app.post("/api/verify-reset-code", (req, res) => {
     timestamp: tokenTimestamp
   });
 
+  // Clean up token after 30 minutes
+  setTimeout(() => {
+    const storedToken = resetTokens.get(resetToken);
+    if (storedToken && storedToken.timestamp === tokenTimestamp) {
+      resetTokens.delete(resetToken);
+      console.log(`🧹 Cleaned up expired token for ${email}`);
+    }
+  }, 30 * 60 * 1000); // 30 minutes
+  
   console.log(`✅ Reset token stored for ${email}, expires in 30 minutes`);
 
   // Mark code as verified
