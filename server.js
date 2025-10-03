@@ -60,63 +60,22 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Email sending function that uses Resend or falls back to Gmail
+// Email sending function - Use Gmail SMTP for all users until domain is configured
 async function sendEmail({ to, subject, html }) {
-  if (process.env.RESEND_API_KEY) {
-    // Use Resend
-    try {
-      const result = await resend.emails.send({
-        from: 'Suave Barbershop <onboarding@resend.dev>', // Using Resend's default domain
-        to: [to],
-        subject: subject,
-        html: html,
-      });
-      
-      // Check if Resend failed due to domain restrictions
-      if (result.error && result.error.statusCode === 403) {
-        console.warn('⚠️ Resend domain restriction detected, falling back to Gmail...');
-        throw new Error('Resend domain restriction - fallback needed');
-      }
-      
-      console.log('✅ Email sent via Resend:', result);
-      return result;
-    } catch (error) {
-      console.error('❌ Resend error, attempting Gmail fallback:', error.message);
-      
-      // Fall back to Gmail SMTP
-      if (transporter) {
-        try {
-          const result = await transporter.sendMail({
-            from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
-            to: to,
-            subject: subject,
-            html: html,
-          });
-          console.log('✅ Email sent via Gmail SMTP fallback:', result.messageId);
-          return result;
-        } catch (gmailError) {
-          console.error('❌ Gmail fallback also failed:', gmailError);
-          throw gmailError;
-        }
-      }
-      
-      throw error;
-    }
-  } else {
-    // Fallback to Gmail SMTP
-    try {
-      const result = await transporter.sendMail({
-        from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
-        to: to,
-        subject: subject,
-        html: html,
-      });
-      console.log('✅ Email sent via Gmail SMTP:', result.messageId);
-      return result;
-    } catch (error) {
-      console.error('❌ Gmail SMTP error:', error);
-      throw error;
-    }
+  console.log(`📧 Sending email to ${to} via Gmail SMTP (bypassing Resend restrictions)`);
+  
+  try {
+    const result = await transporter.sendMail({
+      from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
+      to: to,
+      subject: subject,
+      html: html,
+    });
+    console.log('✅ Email sent via Gmail SMTP:', result.messageId);
+    return result;
+  } catch (error) {
+    console.error('❌ Gmail SMTP error:', error);
+    throw error;
   }
 }
 
