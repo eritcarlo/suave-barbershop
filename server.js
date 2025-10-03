@@ -2230,34 +2230,61 @@ app.post("/api/cancel-booking", requireLogin, (req, res) => {
     return res
       .status(400)
       .json({ success: false, error: "Missing booking ID" });
-  // Mark booking as cancelled by user
-  db.run(
-    "UPDATE bookings SET status = 'Cancelled', cancelled_by = 'USER' WHERE id = ? AND user_id = ?",
+
+  // First get booking details for email
+  db.get(
+    `SELECT b.*, u.email, u.username, br.name as barber_name, t.time 
+     FROM bookings b 
+     LEFT JOIN users u ON b.user_id = u.id 
+     LEFT JOIN barbers br ON b.barber_id = br.id 
+     LEFT JOIN timeslots t ON b.time_id = t.id 
+     WHERE b.id = ? AND b.user_id = ?`,
     [bookingId, req.session.user.id],
-    function (err) {
-      if (err)
-        return res
-          .status(500)
-          .json({ success: false, error: "Database error" });
-      if (this.changes === 0)
-        return res
-          .status(404)
-          .json({ success: false, error: "Booking not found or not yours" });
+    (getErr, booking) => {
+      if (getErr) return res.status(500).json({ success: false, error: "Database error" });
+      if (!booking) return res.status(404).json({ success: false, error: "Booking not found or not yours" });
 
-      // Optionally notify admins about user cancellation
-      db.all("SELECT id FROM users WHERE role IN ('ADMIN','SUPERADMIN')", [], (aErr, admins) => {
-        if (!aErr && admins && admins.length) {
-          admins.forEach(adm => {
-            db.run(
-              "INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)",
-              [adm.id, `A user cancelled a booking (ID: ${bookingId}).`, 'cancellation'],
-              (nErr) => { if (nErr) console.error('Admin notify error:', nErr); }
-            );
+      // Mark booking as cancelled by user
+      db.run(
+        "UPDATE bookings SET status = 'Cancelled', cancelled_by = 'USER' WHERE id = ? AND user_id = ?",
+        [bookingId, req.session.user.id],
+        function (err) {
+          if (err)
+            return res
+              .status(500)
+              .json({ success: false, error: "Database error" });
+          if (this.changes === 0)
+            return res
+              .status(404)
+              .json({ success: false, error: "Booking not found or not yours" });
+
+          // Send cancellation email to user
+          if (booking.email) {
+            sendCancellationEmail(booking.email, {
+              service: booking.service,
+              booking_date: booking.booking_date,
+              time: booking.time,
+              barber: booking.barber_name,
+              cancelled_by: 'USER'
+            });
+          }
+
+          // Optionally notify admins about user cancellation
+          db.all("SELECT id FROM users WHERE role IN ('ADMIN','SUPERADMIN')", [], (aErr, admins) => {
+            if (!aErr && admins && admins.length) {
+              admins.forEach(adm => {
+                db.run(
+                  "INSERT INTO notifications (user_id, message, type) VALUES (?, ?, ?)",
+                  [adm.id, `A user cancelled a booking (ID: ${bookingId}).`, 'cancellation'],
+                  (nErr) => { if (nErr) console.error('Admin notify error:', nErr); }
+                );
+              });
+            }
           });
-        }
-      });
 
-      res.json({ success: true, message: "Booking cancelled" });
+          res.json({ success: true, message: "Booking cancelled" });
+        }
+      );
     }
   );
 });
