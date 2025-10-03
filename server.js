@@ -2721,6 +2721,7 @@ const resetCodes = new Map(); // { email: { code, timestamp, verified } }
 // Temporary: Use longer-lived memory storage for reset tokens (30 minutes)
 const resetTokens = new Map(); // { token: { email, timestamp } }
 console.log("⚠️ Using temporary memory-based reset tokens with 30min expiry");
+console.log("🆕 NEW SIMPLIFIED PASSWORD RESET VERSION LOADED!");
 
 // Generate 6-digit verification code
 function generateVerificationCode() {
