@@ -505,7 +505,11 @@ async function sendBookingConfirmation(email, bookingDetails) {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendEmail({
+      to: email,
+      subject: mailOptions.subject,
+      html: mailOptions.html
+    });
     console.log("Booking confirmation email sent to:", email);
   } catch (error) {
     console.error("Email sending error:", error);
@@ -541,7 +545,11 @@ async function sendCancellationEmail(email, bookingDetails) {
       `,
     };
 
-    await transporter.sendMail(mailOptions);
+    await sendEmail({
+      to: email,
+      subject: mailOptions.subject,
+      html: mailOptions.html
+    });
     console.log("Cancellation email sent to:", email);
   } catch (error) {
     console.error("Cancellation email sending error:", error);
@@ -2939,8 +2947,7 @@ app.post("/api/reset-password", async (req, res) => {
         resetTokens.delete(token);
 
         // Send confirmation email
-        transporter.sendMail({
-          from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
+        sendEmail({
           to: email,
           subject: "Password Reset Successful - Suave Barbershop",
           html: `
