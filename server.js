@@ -2736,6 +2736,17 @@ db.serialize(() => {
       console.error("Error cleaning up expired reset tokens:", err);
     } else {
       console.log("✅ Expired reset tokens cleaned up");
+      
+      // Test if table exists and log structure
+      db.all(`SELECT name FROM sqlite_master WHERE type='table' AND name='reset_tokens'`, (err, tables) => {
+        if (err) {
+          console.error("Error checking reset_tokens table:", err);
+        } else if (tables.length > 0) {
+          console.log("✅ reset_tokens table exists");
+        } else {
+          console.error("❌ reset_tokens table NOT found");
+        }
+      });
     }
   });
 });
