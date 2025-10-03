@@ -60,10 +60,36 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Email sending function - Use Gmail SMTP for all users until domain is configured
+// Smart email function: Use Resend for allowed addresses, Gmail for others
 async function sendEmail({ to, subject, html }) {
-  console.log(`📧 Sending email to ${to} via Gmail SMTP (bypassing Resend restrictions)`);
+  const allowedResendEmail = 'immrclrnz@gmail.com';
   
+  // Use Resend for the main email address (no restrictions)
+  if (process.env.RESEND_API_KEY && to === allowedResendEmail) {
+    console.log(`📧 Sending email to ${to} via Resend (unrestricted address)`);
+    try {
+      const result = await resend.emails.send({
+        from: 'Suave Barbershop <onboarding@resend.dev>',
+        to: [to],
+        subject: subject,
+        html: html,
+      });
+      
+      if (result.error) {
+        console.error('❌ Resend error for main address:', result.error);
+        throw new Error('Resend failed');
+      }
+      
+      console.log('✅ Email sent via Resend:', result.data?.id);
+      return result;
+    } catch (error) {
+      console.error('❌ Resend failed, falling back to Gmail:', error.message);
+      // Fall through to Gmail
+    }
+  }
+  
+  // Use Gmail SMTP for all other addresses or as fallback
+  console.log(`📧 Sending email to ${to} via Gmail SMTP`);
   try {
     const result = await transporter.sendMail({
       from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
