@@ -71,14 +71,14 @@ async function sendEmail({ to, subject, html }) {
         subject: subject,
         html: html,
       });
-      console.log('✅ Email sent via Resend:', result);
       
       // Check if Resend failed due to domain restrictions
       if (result.error && result.error.statusCode === 403) {
-        console.warn('⚠️ Resend domain restriction, falling back to Gmail...');
+        console.warn('⚠️ Resend domain restriction detected, falling back to Gmail...');
         throw new Error('Resend domain restriction - fallback needed');
       }
       
+      console.log('✅ Email sent via Resend:', result);
       return result;
     } catch (error) {
       console.error('❌ Resend error, attempting Gmail fallback:', error.message);
