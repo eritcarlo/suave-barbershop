@@ -49,6 +49,23 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER || "immrclrnz@gmail.com",
     pass: process.env.EMAIL_PASS || "lagl vivy osbc wyxa",
   },
+  pool: true,
+  maxConnections: 1,
+  maxMessages: 3,
+  rateDelta: 1000,
+  rateLimit: 5,
+  connectionTimeout: 60000,
+  greetingTimeout: 30000,
+  socketTimeout: 60000,
+});
+
+// Test email connection on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('❌ Email configuration error:', error);
+  } else {
+    console.log('✅ Email server is ready to send messages');
+  }
 });
 
 // ---------------- DATABASE ----------------
@@ -2700,36 +2717,67 @@ app.post("/api/forgot-password", async (req, res) => {
       }
     }, 10 * 60 * 1000); // 10 minutes
 
-    // Send verification code via email
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
-        to: email,
-        subject: "Password Reset Verification Code - Suave Barbershop",
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #cf0c02;">Password Reset Request</h2>
-            <p>Dear Customer,</p>
-            <p>You have requested to reset your password for your Suave Barbershop account.</p>
-            <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
-              <h3 style="margin-top: 0; color: #333;">Your Verification Code:</h3>
-              <div style="font-size: 32px; font-weight: bold; color: #cf0c02; letter-spacing: 5px; margin: 20px 0;">
-                ${verificationCode}
+    // Send verification code via email with retry logic
+    const sendEmailWithRetry = async (retries = 3) => {
+      for (let i = 0; i < retries; i++) {
+        try {
+          console.log(`Attempting to send verification email to ${email} (attempt ${i + 1}/${retries})`);
+          
+          await transporter.sendMail({
+            from: process.env.EMAIL_USER || "immrclrnz@gmail.com",
+            to: email,
+            subject: "Password Reset Verification Code - Suave Barbershop",
+            html: `
+              <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                <h2 style="color: #cf0c02;">Password Reset Request</h2>
+                <p>Dear Customer,</p>
+                <p>You have requested to reset your password for your Suave Barbershop account.</p>
+                <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
+                  <h3 style="margin-top: 0; color: #333;">Your Verification Code:</h3>
+                  <div style="font-size: 32px; font-weight: bold; color: #cf0c02; letter-spacing: 5px; margin: 20px 0;">
+                    ${verificationCode}
+                  </div>
+                  <p style="color: #666; font-size: 14px;">This code will expire in 10 minutes</p>
+                </div>
+                <p>If you did not request this password reset, please ignore this email.</p>
+                <p>Best regards,<br><strong>Suave Barbershop Team</strong></p>
               </div>
-              <p style="color: #666; font-size: 14px;">This code will expire in 10 minutes</p>
-            </div>
-            <p>If you did not request this password reset, please ignore this email.</p>
-            <p>Best regards,<br><strong>Suave Barbershop Team</strong></p>
-          </div>
-        `,
-      });
-      
-      console.log(`Verification code sent to ${email}: ${verificationCode}`); // Debug log
+            `,
+          });
+          
+          console.log(`✅ Verification code sent successfully to ${email}: ${verificationCode}`);
+          return true; // Success, exit retry loop
+        } catch (emailError) {
+          console.error(`❌ Email attempt ${i + 1} failed:`, emailError.message);
+          
+          if (i === retries - 1) {
+            // Last attempt failed
+            throw emailError;
+          }
+          
+          // Wait before retry (exponential backoff)
+          const delay = Math.pow(2, i) * 1000; // 1s, 2s, 4s
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    };
+
+    try {
+      await sendEmailWithRetry();
       res.json({ success: true, message: "Verification code sent to your email" });
     } catch (emailError) {
-      console.error("Email error:", emailError);
+      console.error("❌ All email attempts failed:", emailError.message);
       resetCodes.delete(email); // Clean up on email failure
-      res.status(500).json({ success: false, error: "Failed to send verification email" });
+      
+      // Check if it's a timeout or connection error
+      if (emailError.code === 'ETIMEDOUT' || emailError.code === 'ECONNECTION') {
+        res.status(500).json({ 
+          success: false, 
+          error: "Unable to send email at this time. Please try again later or contact support." 
+        });
+      } else {
+        res.status(500).json({ success: false, error: "Failed to send verification email" });
+      }
     }
   });
 });
